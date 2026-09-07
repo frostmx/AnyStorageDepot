@@ -1,0 +1,30 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"SemVersion": "0.1.0",
+	"FriendlyName": "Any Storage Depot",
+	"Description": "Build and hand-craft straight out of any storage container in the world, the way the Dimensional Depot already lets you.",
+	"Category": "Gameplay",
+	"CreatedBy": "frostmx",
+	"CanContainContent": false,
+	"RequiredOnRemote": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": true,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "AnyStorageDepot",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "SML",
+			"Enabled": true,
+			"SemVersion": "^3.12.0"
+		}
+	],
+	"GameVersion": ">=502094"
+}
