@@ -21,44 +21,38 @@ namespace
 	{
 		return Class ? Class->GetName() : FString(TEXT("<null>"));
 	}
-}
 
-/**
- * Declared a friend of AFGHologram through Config/AccessTransformers.ini, which is the only
- * way to take a pointer to its protected CheckCanAfford.
- */
-class FASDHookAccess
-{
-public:
-	static void InstallHologramProbes()
+	/**
+	 * SML escalates a funchook failure to a fatal error, which on a dedicated server means the
+	 * process dies inside StartupModule. Naming each target before installing it turns that from
+	 * a stack trace into a log line saying which function was refused.
+	 */
+	void ASDInstalling(const TCHAR* Target)
 	{
-		// Non-virtual, and the single entry point every hologram class goes through.
-		SUBSCRIBE_METHOD(AFGHologram::ValidatePlacementAndCost,
-			[](auto& Scope, AFGHologram* Self, UFGInventoryComponent* Inventory)
-			{
-				const FASDProbe Probe(TEXT("Hologram::ValidatePlacementAndCost"), Self,
-					FString::Printf(TEXT("inv=%s"), *ASDDescribe(Inventory)));
-				Scope(Self, Inventory);
-			});
-
-		// Virtual and overridden in subclasses. If this never fires for a conveyor or a
-		// blueprint hologram, the overrides do not call Super and the base address is not a
-		// usable seam - exactly what stage 1 is here to find out.
-		SUBSCRIBE_METHOD(AFGHologram::CheckCanAfford,
-			[](auto& Scope, AFGHologram* Self, UFGInventoryComponent* Inventory)
-			{
-				const FASDProbe Probe(TEXT("Hologram::CheckCanAfford"), Self,
-					FString::Printf(TEXT("inv=%s"), *ASDDescribe(Inventory)));
-				Scope(Self, Inventory);
-			});
+		UE_LOG(LogAnyStorageDepot, Display, TEXT("installing probe: %s"), Target);
 	}
-};
+}
 
 void FASDProbe::Install()
 {
-	FASDHookAccess::InstallHologramProbes();
+	// The single entry point every hologram class goes through when the build gun validates
+	// placement and cost. Deliberately not CheckCanAfford: that one is virtual, and SML refuses
+	// to hook a virtual override without a sample instance to resolve the implementation from
+	// (NativeHookManager.cpp:103) - at StartupModule no hologram exists yet, and the assert
+	// takes the whole process down. ValidatePlacementAndCost is non-virtual and, by its own
+	// comment, recurses into child holograms, so logging the concrete class here answers the
+	// coverage question anyway.
+	ASDInstalling(TEXT("AFGHologram::ValidatePlacementAndCost"));
+	SUBSCRIBE_METHOD(AFGHologram::ValidatePlacementAndCost,
+		[](auto& Scope, AFGHologram* Self, UFGInventoryComponent* Inventory)
+		{
+			const FASDProbe Probe(TEXT("Hologram::ValidatePlacementAndCost"), Self,
+				FString::Printf(TEXT("inv=%s"), *ASDDescribe(Inventory)));
+			Scope(Self, Inventory);
+		});
 
 	// The server side of building. An authoritative re-check would have to live here.
+	ASDInstalling(TEXT("UFGBuildGunStateBuild::InternalConstructHologram"));
 	SUBSCRIBE_METHOD(UFGBuildGunStateBuild::InternalConstructHologram,
 		[](auto& Scope, UFGBuildGunStateBuild* Self, FNetConstructionID ConstructionID)
 		{
@@ -68,6 +62,7 @@ void FASDProbe::Install()
 
 	// The one function in the whole SDK that spends "inventory + Depot" in a single call.
 	// Whether building and crafting really funnel through it is the central question.
+	ASDInstalling(TEXT("UFGInventoryLibrary::GrabItemsFromInventoryAndCentralStorage"));
 	SUBSCRIBE_METHOD(UFGInventoryLibrary::GrabItemsFromInventoryAndCentralStorage,
 		[](auto& Scope, UFGInventoryComponent* Inventory, AFGCentralStorageSubsystem* CentralStorage,
 		   bool bTakeFromInventoryFirst, TSubclassOf<UFGItemDescriptor> ItemClass, int32 NumToRemove)
@@ -81,6 +76,7 @@ void FASDProbe::Install()
 
 	// Reading the Depot. If this never fires while no Depot is built, the payment paths gate on
 	// the inlined IsCentralStorageBuilt() and the mod needs its fallback mode.
+	ASDInstalling(TEXT("AFGCentralStorageSubsystem::GetNumItemsFromCentralStorage"));
 	SUBSCRIBE_METHOD(AFGCentralStorageSubsystem::GetNumItemsFromCentralStorage,
 		[](auto& Scope, const AFGCentralStorageSubsystem* Self, TSubclassOf<UFGItemDescriptor> ItemClass)
 		{
@@ -89,6 +85,7 @@ void FASDProbe::Install()
 				*NameOf(ItemClass), Result);
 		});
 
+	ASDInstalling(TEXT("AFGCentralStorageSubsystem::TryRemoveItemsFromCentralStorage"));
 	SUBSCRIBE_METHOD(AFGCentralStorageSubsystem::TryRemoveItemsFromCentralStorage,
 		[](auto& Scope, AFGCentralStorageSubsystem* Self, TSubclassOf<UFGItemDescriptor> ItemClass, const int32 NumToRemove)
 		{
@@ -99,6 +96,7 @@ void FASDProbe::Install()
 
 	// Does the Depot's own upload logic read the same getter? If it does, inflating that getter
 	// globally would break uploading - which is why the effector is scoped.
+	ASDInstalling(TEXT("AFGCentralStorageSubsystem::CanUploadInventoryItemToCentralStorage"));
 	SUBSCRIBE_METHOD(AFGCentralStorageSubsystem::CanUploadInventoryItemToCentralStorage,
 		[](auto& Scope, const AFGCentralStorageSubsystem* Self, const FInventoryItem& Item)
 		{
@@ -107,6 +105,7 @@ void FASDProbe::Install()
 		});
 
 	// Hand crafting.
+	ASDInstalling(TEXT("UFGWorkBench::CanProduce"));
 	SUBSCRIBE_METHOD(UFGWorkBench::CanProduce,
 		[](auto& Scope, const UFGWorkBench* Self, TSubclassOf<UFGRecipe> Recipe, UFGInventoryComponent* Inventory)
 		{
@@ -115,6 +114,7 @@ void FASDProbe::Install()
 			Scope(Self, Recipe, Inventory);
 		});
 
+	ASDInstalling(TEXT("UFGWorkBench::RemoveIngredientsAndAwardRewards"));
 	SUBSCRIBE_METHOD(UFGWorkBench::RemoveIngredientsAndAwardRewards,
 		[](auto& Scope, UFGWorkBench* Self, UFGInventoryComponent* Inventory, TSubclassOf<UFGRecipe> Recipe)
 		{
@@ -123,6 +123,7 @@ void FASDProbe::Install()
 			Scope(Self, Inventory, Recipe);
 		});
 
+	ASDInstalling(TEXT("UFGRecipe::IsRecipeAffordable"));
 	SUBSCRIBE_METHOD(UFGRecipe::IsRecipeAffordable,
 		[](auto& Scope, AFGCharacterPlayer* Player, TSubclassOf<UFGRecipe> Recipe)
 		{
@@ -131,6 +132,7 @@ void FASDProbe::Install()
 				*NameOf(Recipe), Result ? 1 : 0);
 		});
 
+	ASDInstalling(TEXT("AFGRecipeManager::GetAffordableRecipesForProducer"));
 	SUBSCRIBE_METHOD(AFGRecipeManager::GetAffordableRecipesForProducer,
 		[](auto& Scope, AFGRecipeManager* Self, AFGCharacterPlayer* Player,
 		   TSubclassOf<UObject> ForProducer, TArray<TSubclassOf<UFGRecipe>>& OutRecipes)
@@ -140,6 +142,7 @@ void FASDProbe::Install()
 			Scope(Self, Player, ForProducer, OutRecipes);
 		});
 
+	ASDInstalling(TEXT("UFGBlueprintFunctionLibrary::GetCategoriesWithAffordableRecipes"));
 	SUBSCRIBE_METHOD(UFGBlueprintFunctionLibrary::GetCategoriesWithAffordableRecipes,
 		[](auto& Scope, AFGCharacterPlayer* Player, TSubclassOf<UObject> ForProducer)
 		{
