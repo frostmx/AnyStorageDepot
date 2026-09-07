@@ -42,3 +42,40 @@ public:
 private:
 	static thread_local int32 Depth;
 };
+
+/**
+ * Marks a stretch of execution as "the Depot is doing its own bookkeeping".
+ *
+ * The read effector is on by default rather than confined to the payment scope, and this is what
+ * keeps that safe. The reason for the asymmetry is measured, not assumed: in a real client
+ * session the Depot getter was called 3855 times inside a payment path and 17409 times outside
+ * one, across 708 frames, for exactly the item classes the craft menu lists. The cost widgets ask
+ * the Depot themselves, and there is nothing to hang a scope on at their end - the whole cost and
+ * crafting UI is Blueprint, with no C++ class to hook. On the server the same log shows zero
+ * out-of-scope reads, so widening the read changes nothing where items actually move.
+ *
+ * So the read is wide and the write stays narrow: TryRemoveItemsFromCentralStorage is still gated
+ * on the payment scope. Even if some caller we never anticipated sees an inflated number, the
+ * worst it can do is show a wrong figure or misjudge an upload - it cannot move items out of
+ * anyone's containers.
+ *
+ * What must not see the inflated number is the Depot's own machinery: upload limits, stack limits
+ * and its window would all misread chests as Depot contents. Those callers, unlike the UI, are a
+ * short list that can be named straight out of FGCentralStorageSubsystem.h, and each one gets a
+ * hook that opens this scope for the duration.
+ */
+class FASDDepotInternalScope
+{
+public:
+	FASDDepotInternalScope() { ++Depth; }
+	~FASDDepotInternalScope() { --Depth; }
+
+	FASDDepotInternalScope(const FASDDepotInternalScope&) = delete;
+	FASDDepotInternalScope& operator=(const FASDDepotInternalScope&) = delete;
+
+	/** True while one of the Depot's own operations is on the stack of this thread. */
+	static bool IsOpen() { return Depth > 0; }
+
+private:
+	static thread_local int32 Depth;
+};

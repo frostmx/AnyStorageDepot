@@ -116,17 +116,38 @@ void FASDEffectors::Install()
 	// Effectors.
 	// ---------------------------------------------------------------------------------------
 
-	// Read: how much is available. Adding the containers here is what makes a hologram go green
-	// and a recipe stop being greyed out - the game's own cost checks and its cost widgets all
-	// read this number, so the UI comes along for free.
+	// Read: how much is available. This is what makes a hologram go green, a recipe stop being
+	// greyed out, and - the part that took a second pass to get right - the cost numbers on screen
+	// agree with what actually happens.
+	//
+	// It is deliberately NOT gated on the payment scope. The cost widgets ask the Depot directly
+	// and there is nothing to open a scope on at their end: the whole cost and crafting UI is
+	// Blueprint, with no C++ class to hook. Gating it meant the mod paid out of chests while the
+	// screen still said "Missing Iron Rod x 5". See ASDScope.h for the measurements behind the
+	// asymmetry - wide read, narrow write.
 	Installing(TEXT("AFGCentralStorageSubsystem::GetNumItemsFromCentralStorage"));
 	SUBSCRIBE_METHOD(AFGCentralStorageSubsystem::GetNumItemsFromCentralStorage,
 		[](auto& Scope, const AFGCentralStorageSubsystem* Self, TSubclassOf<UFGItemDescriptor> ItemClass)
 		{
 			const int32 InDepot = Scope(Self, ItemClass);
+
+			// Paying is always allowed to see the containers - that is the whole mod.
 			if (!FASDPaymentScope::IsOpen())
 			{
-				return;
+				if (FASDDepotInternalScope::IsOpen())
+				{
+					return;
+				}
+
+				// A dedicated server draws nothing. Any read there that is not a payment is the
+				// game's own machinery, so the display widening has no business running.
+				if (const UWorld* World = Self ? Self->GetWorld() : nullptr)
+				{
+					if (World->GetNetMode() == NM_DedicatedServer)
+					{
+						return;
+					}
+				}
 			}
 
 			const AASDStoragePool* Pool = AASDStoragePool::Get(Self);
@@ -177,6 +198,75 @@ void FASDEffectors::Install()
 			{
 				Scope.Override(FromDepot + FromContainers);
 			}
+		});
+
+	// ---------------------------------------------------------------------------------------
+	// Suppressors. The Depot's own bookkeeping must keep seeing its own contents and nothing
+	// else - otherwise chests would count against its stack limits, block uploads, and show up
+	// in its window as if they had been uploaded.
+	// ---------------------------------------------------------------------------------------
+
+	// Taking items OUT of the Depot through its window. These two must never see an inflated
+	// number, and the reason is the sharpest hazard in the whole design: the read effector is wide
+	// but the write effector is narrow, so a widened count here would let the window hand out
+	// items that were never removed from anywhere. Wide read plus narrow write does not fail
+	// safe - it duplicates. Suppressing them makes the window physically unable to give away more
+	// than the Depot actually holds.
+	Installing(TEXT("UFGInventoryLibrary::GrabItemFromCentralStorage"));
+	SUBSCRIBE_METHOD(UFGInventoryLibrary::GrabItemFromCentralStorage,
+		[](auto& Scope, const FItemAmount& ItemAmount, UFGInventoryComponent* Destination, const int32 DestinationIdx)
+		{
+			const FASDDepotInternalScope Internal;
+			Scope(ItemAmount, Destination, DestinationIdx);
+		});
+
+	Installing(TEXT("UFGInventoryLibrary::MoveItemFromCentralStorage"));
+	SUBSCRIBE_METHOD(UFGInventoryLibrary::MoveItemFromCentralStorage,
+		[](auto& Scope, const FItemAmount& ItemAmount, UFGInventoryComponent* Destination)
+		{
+			const FASDDepotInternalScope Internal;
+			Scope(ItemAmount, Destination);
+		});
+
+	Installing(TEXT("AFGCentralStorageSubsystem::CanUploadInventoryItemToCentralStorage"));
+	SUBSCRIBE_METHOD(AFGCentralStorageSubsystem::CanUploadInventoryItemToCentralStorage,
+		[](auto& Scope, const AFGCentralStorageSubsystem* Self, const FInventoryItem& Item)
+		{
+			const FASDDepotInternalScope Internal;
+			Scope(Self, Item);
+		});
+
+	Installing(TEXT("AFGCentralStorageSubsystem::UploadItemFromInventoryToCentralStorage"));
+	SUBSCRIBE_METHOD(AFGCentralStorageSubsystem::UploadItemFromInventoryToCentralStorage,
+		[](auto& Scope, AFGCentralStorageSubsystem* Self, UFGInventoryComponent* Inventory, int32 SlotIndex)
+		{
+			const FASDDepotInternalScope Internal;
+			Scope(Self, Inventory, SlotIndex);
+		});
+
+	Installing(TEXT("AFGCentralStorageSubsystem::GetCentralStorageItemLimit"));
+	SUBSCRIBE_METHOD(AFGCentralStorageSubsystem::GetCentralStorageItemLimit,
+		[](auto& Scope, const AFGCentralStorageSubsystem* Self, TSubclassOf<UFGItemDescriptor> ItemClass)
+		{
+			const FASDDepotInternalScope Internal;
+			Scope(Self, ItemClass);
+		});
+
+	Installing(TEXT("AFGCentralStorageSubsystem::SortItemsInStorage"));
+	SUBSCRIBE_METHOD(AFGCentralStorageSubsystem::SortItemsInStorage,
+		[](auto& Scope, AFGCentralStorageSubsystem* Self)
+		{
+			const FASDDepotInternalScope Internal;
+			Scope(Self);
+		});
+
+	// The Depot window lists its contents through this one. Chests must not appear in it.
+	Installing(TEXT("AFGCentralStorageSubsystem::GetAllItemsFromCentralStorage"));
+	SUBSCRIBE_METHOD(AFGCentralStorageSubsystem::GetAllItemsFromCentralStorage,
+		[](auto& Scope, const AFGCentralStorageSubsystem* Self, TArray<FItemAmount>& OutAllItems)
+		{
+			const FASDDepotInternalScope Internal;
+			Scope(Self, OutAllItems);
 		});
 
 	UE_LOG(LogAnyStorageDepot, Display, TEXT("effectors installed"));
