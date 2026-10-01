@@ -47,6 +47,16 @@ public:
 	 */
 	int32 TakeFromPool(TSubclassOf<UFGItemDescriptor> ItemClass, int32 Num);
 
+	/**
+	 * How many of this item the containers hold right now, server only.
+	 *
+	 * GetPooled answers from the sweep, which can lag behind a belt that has just emptied a chest.
+	 * A payment that spends several items must not find out halfway through that one of them is
+	 * short - TakeFromPool would refuse it after the others were already taken - so it checks
+	 * every item against this live count first, in the same frame.
+	 */
+	int32 CountLive(TSubclassOf<UFGItemDescriptor> ItemClass) const;
+
 	int32 GetContainerCount() const { return Containers.Num(); }
 
 	/** Writes the whole pool to the log, largest count first. */

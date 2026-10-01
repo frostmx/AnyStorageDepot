@@ -11,6 +11,9 @@ happen to be standing.
 
 - **Building and hand crafting** both draw on your containers. Point the build gun at the ground
   and it pays out of storage; craft at a workbench and the ingredients come from storage.
+- **MAM research** draws on your containers too. The research cost panel counts what is in
+  storage, and starting a research takes whatever your inventory and the Depot cannot cover
+  from the containers. Nothing is taken unless the whole cost can be paid.
 - **Every container counts, at any distance.** Nothing to upload, nothing to unlock, and you do not
   need a Dimensional Depot at all.
 - **The numbers on screen tell the truth.** Cost panels and the craft menu show what is really

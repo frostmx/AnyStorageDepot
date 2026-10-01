@@ -344,6 +344,29 @@ int32 AASDStoragePool::TakeFromPool(TSubclassOf<UFGItemDescriptor> ItemClass, in
 	return Num;
 }
 
+int32 AASDStoragePool::CountLive(TSubclassOf<UFGItemDescriptor> ItemClass) const
+{
+	if (!HasAuthority() || !ItemClass)
+	{
+		return 0;
+	}
+
+	int32 Total = 0;
+	for (const TWeakObjectPtr<AFGBuildableStorage>& Weak : Containers)
+	{
+		AFGBuildableStorage* Storage = Weak.Get();
+		if (!IsValid(Storage))
+		{
+			continue;
+		}
+		if (const UFGInventoryComponent* Inventory = Storage->GetStorageInventory())
+		{
+			Total += Inventory->GetNumItems(ItemClass);
+		}
+	}
+	return Total;
+}
+
 void AASDStoragePool::DumpToLog() const
 {
 	const TMap<TSubclassOf<UFGItemDescriptor>, int32>& Source = HasAuthority() ? Totals : ReplicatedTotals;

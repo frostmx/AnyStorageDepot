@@ -2,6 +2,7 @@
 
 #include "ASDEffectors.h"
 #include "ASDProbe.h"
+#include "ASDResearch.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 
@@ -19,6 +20,10 @@ void FAnyStorageDepotModule::StartupModule()
 	UE_LOG(LogAnyStorageDepot, Display, TEXT("editor build: hooks not installed"));
 #else
 	FASDEffectors::Install();
+
+	// MAM research: its own payment path, which never asks the Depot. Relies on the effectors
+	// above for the widened Depot reads, so it goes second.
+	FASDResearch::Install();
 
 	// The stage-1 probes stay in the build but off: they log every cost query, which runs to tens
 	// of thousands of lines in a few minutes of play. Launch with -asdprobe to get the call tree
