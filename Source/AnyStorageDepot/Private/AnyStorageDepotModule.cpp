@@ -27,6 +27,14 @@ void FAnyStorageDepotModule::StartupModule()
 	{
 		FASDProbe::Install();
 	}
+
+	// The MAM probe is switched by a file as well, because the client is relaunched by the Epic
+	// launcher and loses the command line. Installed only at startup: placing a hook while a
+	// factory worker may be inside GetNumItems is a race this probe does not need to take.
+	if (FASDMAMProbe::IsRequested())
+	{
+		FASDMAMProbe::Install();
+	}
 #endif
 }
 

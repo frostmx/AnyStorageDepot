@@ -29,5 +29,19 @@ private:
 	static thread_local int32 Depth;
 };
 
+/**
+ * Who the MAM window asks before research payment is changed - see ASDHooks_MAMProbe.cpp.
+ * Separate from FASDProbe so it can be switched on without drowning in build-cost traffic.
+ */
+class FASDMAMProbe
+{
+public:
+	/** True when -asdmamprobe was passed or Saved/AnyStorageDepot.mamprobe exists. */
+	static bool IsRequested();
+
+	/** Installs the MAM probe hooks. Safe to call once, from StartupModule. */
+	static void Install();
+};
+
 /** Describes an object as "class name (server|client|no-world)" for the probe log. */
 FString ASDDescribe(const UObject* Object);
